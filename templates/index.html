@@ -417,11 +417,20 @@
 
       const jobId = data.job_id;
 
-      // Step 2: Poll every 4s until done or error
+      // Step 2: Poll every 4s until done or error (timeout after 180s)
       let elapsed = 0;
+      const MAX_WAIT_SECONDS = 180;
       const poll = setInterval(async () => {
         elapsed += 4;
         setLoading(true, `Generating… (~${elapsed}s)`);
+
+        if (elapsed >= MAX_WAIT_SECONDS) {
+          clearInterval(poll);
+          showError(`Request timed out after ${MAX_WAIT_SECONDS}s. Please check Render logs or try again.`);
+          setLoading(false);
+          return;
+        }
+
         try {
           const pollRes = await fetch(`/api/job/${jobId}`);
           const job = await pollRes.json();
