@@ -1,57 +1,78 @@
 import os
 import json
+import uuid
 import threading
 from flask import Flask, render_template, jsonify, request
 from generator import process_property, save_results
 
 app = Flask(__name__)
 
-# In-memory store: list of result dicts, keyed by session property name
+# ── Job store ──────────────────────────────────────────────
+# { job_id: { "status": "running"|"done"|"error", "result": {...}, "error": "..." } }
+_jobs: dict[str, dict] = {}
 _results: list[dict] = []
-_running = False
 _lock = threading.Lock()
 
 
+# ── Pages ──────────────────────────────────────────────────
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
+# ── Generate (non-blocking) ────────────────────────────────
 @app.route("/api/generate", methods=["POST"])
 def generate():
-    """
-    Accepts a single property object from the form and processes it.
-    Returns the result immediately (blocking call — typically ~5-10s).
-    """
     prop = request.json
     if not prop or not prop.get("name"):
         return jsonify({"error": "Invalid property data"}), 400
 
     # Normalise numeric fields
-    prop["bedrooms"] = int(prop.get("bedrooms", 0))
+    prop["bedrooms"]  = int(prop.get("bedrooms", 0))
     prop["bathrooms"] = int(prop.get("bathrooms", 1))
-    prop["price"] = float(prop.get("price", 0))
+    prop["price"]     = float(prop.get("price", 0))
     prop["area_sqft"] = int(prop.get("area_sqft", 0))
     features_raw = prop.get("features", "")
     if isinstance(features_raw, str):
         prop["features"] = [f.strip() for f in features_raw.split(",") if f.strip()]
 
-    try:
-        result = process_property(prop)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
+    job_id = str(uuid.uuid4())
     with _lock:
-        # Replace if same property name already exists, otherwise append
-        idx = next((i for i, r in enumerate(_results) if r["property"] == result["property"]), None)
-        if idx is not None:
-            _results[idx] = result
-        else:
-            _results.append(result)
+        _jobs[job_id] = {"status": "running", "result": None, "error": None}
 
-    return jsonify(result)
+    def do_work():
+        try:
+            result = process_property(prop)
+            with _lock:
+                idx = next((i for i, r in enumerate(_results) if r["property"] == result["property"]), None)
+                if idx is not None:
+                    _results[idx] = result
+                else:
+                    _results.append(result)
+                _jobs[job_id]["status"] = "done"
+                _jobs[job_id]["result"] = result
+        except Exception as e:
+            with _lock:
+                _jobs[job_id]["status"] = "error"
+                _jobs[job_id]["error"] = str(e)
+
+    threading.Thread(target=do_work, daemon=True).start()
+
+    # Return immediately — frontend will poll /api/job/<job_id>
+    return jsonify({"job_id": job_id}), 202
 
 
+# ── Poll job status ────────────────────────────────────────
+@app.route("/api/job/<job_id>")
+def job_status(job_id):
+    with _lock:
+        job = _jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify(job)
+
+
+# ── All results ────────────────────────────────────────────
 @app.route("/api/results")
 def get_results():
     return jsonify(_results)
@@ -69,6 +90,7 @@ def save():
 def clear():
     with _lock:
         _results.clear()
+        _jobs.clear()
     return jsonify({"status": "cleared"})
 
 

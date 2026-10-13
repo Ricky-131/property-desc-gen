@@ -394,7 +394,7 @@
   });
   updatePreview();
 
-  // ── Generate ──
+  // ── Generate (non-blocking — polls job status) ──
   async function generate() {
     const errEl = document.getElementById("form-error");
     errEl.style.display = "none";
@@ -404,28 +404,56 @@
     if (!prop.location || prop.location === "<Location>") { showError("Location is required."); return; }
     if (!prop.price) { showError("Price is required."); return; }
 
-    setLoading(true);
+    setLoading(true, "Starting…");
     try {
+      // Step 1: Submit — returns job_id immediately (HTTP 202)
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(prop),
       });
       const data = await res.json();
-      if (!res.ok) { showError(data.error || "Generation failed."); return; }
-      addOrUpdateResult(data);
-      toast("✅ Generated & scored!");
+      if (!res.ok) { showError(data.error || "Generation failed."); setLoading(false); return; }
+
+      const jobId = data.job_id;
+
+      // Step 2: Poll every 4s until done or error
+      let elapsed = 0;
+      const poll = setInterval(async () => {
+        elapsed += 4;
+        setLoading(true, `Generating… (~${elapsed}s)`);
+        try {
+          const pollRes = await fetch(`/api/job/${jobId}`);
+          const job = await pollRes.json();
+
+          if (job.status === "done") {
+            clearInterval(poll);
+            addOrUpdateResult(job.result);
+            toast("✅ Generated & scored!");
+            setLoading(false);
+          } else if (job.status === "error") {
+            clearInterval(poll);
+            showError("Error: " + job.error);
+            setLoading(false);
+          }
+          // still "running" → keep polling
+        } catch (e) {
+          clearInterval(poll);
+          showError("Polling error: " + e.message);
+          setLoading(false);
+        }
+      }, 4000);
+
     } catch (e) {
       showError("Network error: " + e.message);
-    } finally {
       setLoading(false);
     }
   }
 
-  function setLoading(on) {
+  function setLoading(on, label = "✦ Generate & Score") {
     document.getElementById("gen-btn").disabled = on;
     document.getElementById("spinner").classList.toggle("active", on);
-    document.getElementById("btn-label").textContent = on ? "Generating…" : "✦ Generate & Score";
+    document.getElementById("btn-label").textContent = on ? label : "✦ Generate & Score";
   }
 
   function showError(msg) {
