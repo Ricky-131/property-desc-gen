@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Property Description Generator</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #22263a;
+      --border: #2e3250;
+      --accent: #6c63ff;
+      --accent2: #ff6584;
+      --accent3: #43e97b;
+      --text: #e2e8f0;
+      --muted: #8892a4;
+      --radius: 12px;
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #1a1d27, #16192a);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 36px;
+      display: flex; align-items: center; gap: 14px;
+    }
+    header .logo { font-size: 1.8rem; }
+    header h1 { font-size: 1.3rem; font-weight: 700; }
+    header p  { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+
+    /* ── Layout ── */
+    .layout { display: grid; grid-template-columns: 380px 1fr; gap: 0; min-height: calc(100vh - 65px); }
+
+    /* ── Sidebar / Form ── */
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 28px 24px;
+      display: flex; flex-direction: column; gap: 20px;
+      overflow-y: auto;
+    }
+    .sidebar h2 { font-size: 1rem; font-weight: 700; margin-bottom: 4px; }
+    .sidebar .hint { font-size: 0.78rem; color: var(--muted); }
+
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    label { font-size: 0.82rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+    input, select, textarea {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.9rem;
+      padding: 10px 12px;
+      width: 100%;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+    textarea { resize: vertical; min-height: 70px; }
+    select option { background: var(--surface2); }
+
+    .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .generate-btn {
+      background: linear-gradient(135deg, var(--accent), #9b59b6);
+      color: #fff; border: none;
+      padding: 13px; border-radius: 8px;
+      font-size: 1rem; font-weight: 700; cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .generate-btn:hover:not(:disabled) { opacity: 0.88; transform: translateY(-1px); }
+    .generate-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+    .spinner-sm {
+      display: none; width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+    }
+    .spinner-sm.active { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #form-error { color: #f87171; font-size: 0.82rem; display: none; }
+
+    .divider { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+
+    .action-row { display: flex; gap: 8px; }
+    .btn-sm {
+      flex: 1; padding: 8px; border-radius: 7px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--muted);
+      font-size: 0.82rem; font-weight: 600; cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+    }
+    .btn-sm:hover { background: var(--border); color: var(--text); }
+    .btn-sm.danger:hover { border-color: #f87171; color: #f87171; }
+
+    /* ── Prompt preview ── */
+    .prompt-preview {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px;
+      font-size: 0.75rem; color: var(--muted);
+      font-family: monospace; line-height: 1.5;
+      max-height: 140px; overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .preview-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+    .ptab {
+      padding: 4px 10px; border-radius: 5px; border: 1px solid var(--border);
+      background: none; color: var(--muted); font-size: 0.75rem; cursor: pointer;
+    }
+    .ptab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ── Main panel ── */
+    .main { padding: 28px 32px; overflow-y: auto; }
+    .main-empty {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100%; color: var(--muted); text-align: center; gap: 12px;
+    }
+    .main-empty .icon { font-size: 3.5rem; }
+    .main-empty p { font-size: 0.95rem; }
+
+    /* ── Summary bar ── */
+    #summary-section { display: none; margin-bottom: 28px; }
+    .summary-bar {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px 24px; overflow-x: auto;
+    }
+    .summary-bar h2 { font-size: 0.95rem; margin-bottom: 14px; color: var(--text); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    thead th { text-align: left; color: var(--muted); font-weight: 600; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+    tbody tr:hover { background: var(--surface2); }
+    tbody td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+
+    /* ── Property cards ── */
+    .property-grid { display: grid; gap: 20px; }
+    .property-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .property-header {
+      background: var(--surface2); padding: 14px 18px;
+      display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .property-header h3 { font-size: 0.95rem; font-weight: 700; }
+    .property-header .meta { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+    .property-header .del-btn {
+      margin-left: auto; background: none; border: 1px solid var(--border);
+      color: var(--muted); border-radius: 6px; padding: 4px 10px;
+      font-size: 0.75rem; cursor: pointer;
+    }
+    .property-header .del-btn:hover { border-color: #f87171; color: #f87171; }
+
+    .tabs { display: flex; border-bottom: 1px solid var(--border); }
+    .tab-btn {
+      padding: 10px 18px; background: none; border: none;
+      color: var(--muted); font-size: 0.85rem; font-weight: 600; cursor: pointer;
+      border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s;
+    }
+    .tab-btn.t-zero  { }
+    .tab-btn.t-few   { }
+    .tab-btn.t-role  { }
+    .tab-btn.active-zero  { color: #a89dff; border-color: #6c63ff; }
+    .tab-btn.active-few   { color: #ff8ca8; border-color: #ff6584; }
+    .tab-btn.active-role  { color: #6ff5a0; border-color: #43e97b; }
+
+    .tab-content { padding: 18px 20px; display: none; }
+    .tab-content.visible { display: block; }
+
+    .desc-box {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px; font-size: 0.92rem;
+      line-height: 1.75; color: var(--text); margin-bottom: 14px;
+    }
+    .score-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .score-item {
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 16px; min-width: 76px;
+    }
+    .score-item .slabel { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    .score-item .sval { font-size: 1.25rem; font-weight: 700; }
+    .score-item.total { background: var(--surface2); }
+    .reasoning { margin-top: 10px; font-size: 0.8rem; color: var(--muted); font-style: italic; }
+
+    /* badges */
+    .badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+    .badge-zero { background:#6c63ff22; color:#a89dff; border:1px solid #6c63ff55; }
+    .badge-few  { background:#ff658422; color:#ff8ca8; border:1px solid #ff658455; }
+    .badge-role { background:#43e97b22; color:#6ff5a0; border:1px solid #43e97b55; }
+
+    /* score color helpers */
+    .sc5 { color: #43e97b; } .sc4 { color: #38bdf8; } .sc3 { color: #facc15; }
+    .sc2 { color: #f97316; } .sc1 { color: #ef4444; }
+
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 18px;
+      font-size: 0.88rem; color: var(--text);
+      box-shadow: 0 4px 20px #0008;
+      transform: translateY(60px); opacity: 0;
+      transition: transform 0.3s, opacity 0.3s;
+      z-index: 100;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="logo">🏡</span>
+  <div>
+    <h1>Property Description Generator</h1>
+    <p>Zero-Shot · Few-Shot · Role-Based — powered by Gemini · 4 API calls per property</p>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div>
+      <h2>Add a Property</h2>
+      <p class="hint">Fill in the details below. The system will generate descriptions using all 3 prompt styles and score them automatically.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Property Name *</label>
+      <input id="f-name" type="text" placeholder="e.g. Sunset Villa" />
+    </div>
+
+    <div class="row-2">
+      <div class="form-group">
+        <label>Type *</label>
+        <select id="f-type">
+          <option>Villa</option>
+          <option>Apartment</option>
+          <option>Studio Apartment</option>
+          <option>Condo</option>
+          <option>Loft</option>
+          <option>Cottage</option>
+          <option>Townhouse</option>
+          <option>Manor</option>
+          <option>Penthouse</option>
+          <option>Bungalow</option>
+          <option>Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Price (USD) *</label>
+        <input id="f-price" type="number" placeholder="e.g. 850000" min="0" />
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Location *</label>
+      <input id="f-location" type="text" placeholder="e.g. Malibu, CA" />
+    </div>
+
+    <div class="row-2">
+      <div class="form-group">
+        <label>Bedrooms</label>
+        <input id="f-bedrooms" type="number" placeholder="0 = Studio" min="0" value="2" />
+      </div>
+      <div class="form-group">
+        <label>Bathrooms</label>
+        <input id="f-bathrooms" type="number" placeholder="1" min="1" value="1" />
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Area (sq ft)</label>
+      <input id="f-area" type="number" placeholder="e.g. 1200" min="0" />
+    </div>
+
+    <div class="form-group">
+      <label>Key Features</label>
+      <textarea id="f-features" placeholder="Comma-separated, e.g. ocean view, private pool, gym"></textarea>
+    </div>
+
+    <!-- Prompt preview -->
+    <div>
+      <div class="preview-tabs">
+        <button class="ptab active" onclick="switchPreview('zero_shot', this)">Zero-Shot</button>
+        <button class="ptab" onclick="switchPreview('few_shot', this)">Few-Shot</button>
+        <button class="ptab" onclick="switchPreview('role_based', this)">Role-Based</button>
+      </div>
+      <div class="prompt-preview" id="prompt-preview">Fill in the form to preview the prompt…</div>
+    </div>
+
+    <span id="form-error"></span>
+    <button class="generate-btn" id="gen-btn" onclick="generate()">
+      <span class="spinner-sm" id="spinner"></span>
+      <span id="btn-label">✦ Generate &amp; Score</span>
+    </button>
+
+    <hr class="divider" />
+
+    <div class="action-row">
+      <button class="btn-sm" onclick="saveResults()">💾 Save JSON + CSV</button>
+      <button class="btn-sm danger" onclick="clearAll()">🗑 Clear All</button>
+    </div>
+  </aside>
+
+  <!-- ── Main panel ── -->
+  <main class="main" id="main">
+    <div class="main-empty" id="empty-state">
+      <div class="icon">✍️</div>
+      <p>Fill in the form and click <strong>Generate &amp; Score</strong>.<br/>
+      Each property uses <strong>4 Gemini API calls</strong> (3 generate + 1 batch score).</p>
+    </div>
+
+    <div id="summary-section">
+      <div class="summary-bar">
+        <h2>📊 Score Summary</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Property</th><th>Style</th><th>Accuracy</th><th>Tone</th><th>Length</th><th>Total / 15</th>
+            </tr>
+          </thead>
+          <tbody id="summary-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="property-grid" id="property-grid"></div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // ── State ──
+  let allResults = [];
+  const STYLES = ["zero_shot", "few_shot", "role_based"];
+  const STYLE_LABEL = { zero_shot: "Zero-Shot", few_shot: "Few-Shot", role_based: "Role-Based" };
+  const STYLE_BADGE  = { zero_shot: "badge-zero", few_shot: "badge-few", role_based: "badge-role" };
+  const STYLE_ACTIVE = { zero_shot: "active-zero", few_shot: "active-few", role_based: "active-role" };
+  let currentPreviewStyle = "zero_shot";
+
+  // ── Prompt preview ──
+  function getFormProp() {
+    return {
+      name:      document.getElementById("f-name").value.trim() || "<Property Name>",
+      type:      document.getElementById("f-type").value,
+      location:  document.getElementById("f-location").value.trim() || "<Location>",
+      bedrooms:  parseInt(document.getElementById("f-bedrooms").value) || 0,
+      bathrooms: parseInt(document.getElementById("f-bathrooms").value) || 1,
+      area_sqft: parseInt(document.getElementById("f-area").value) || 0,
+      price:     parseFloat(document.getElementById("f-price").value) || 0,
+      features:  (document.getElementById("f-features").value || "").split(",").map(s => s.trim()).filter(Boolean),
+    };
+  }
+
+  function buildPreview(prop, style) {
+    const features = prop.features.join(", ") || "—";
+    const bedStr = prop.bedrooms === 0 ? "Studio" : `${prop.bedrooms} bedroom(s)`;
+    const price = prop.price ? `$${prop.price.toLocaleString()}` : "$0";
+    const area = prop.area_sqft ? `${prop.area_sqft} sq ft` : "N/A";
+
+    if (style === "zero_shot") {
+      return `Write a property listing description for the following real estate property.\n\nProperty Name: ${prop.name}\nType: ${prop.type}\nLocation: ${prop.location}\nBedrooms: ${bedStr}\nBathrooms: ${prop.bathrooms}\nArea: ${area}\nPrice: ${price}\nKey Features: ${features}\n\nWrite a compelling, professional real estate description in 3-4 sentences.`;
+    }
+    if (style === "few_shot") {
+      return `[Two example descriptions shown to the model…]\n\nNow write a similar description for:\nProperty Name: ${prop.name}\nType: ${prop.type} | Location: ${prop.location}\nBedrooms: ${bedStr} | Bathrooms: ${prop.bathrooms} | Area: ${area}\nPrice: ${price}\nKey Features: ${features}\n\nDescription (3-4 sentences, professional and engaging):`;
+    }
+    if (style === "role_based") {
+      return `You are an award-winning luxury real estate copywriter with 20 years of experience. Your descriptions are known for being vivid, emotionally compelling, and highly persuasive. You always highlight the lifestyle a property offers, not just its features. Write a premium listing description in exactly 3-4 sentences.\n\nProperty Name: ${prop.name}\nType: ${prop.type}\nLocation: ${prop.location}\nBedrooms: ${bedStr}\nBathrooms: ${prop.bathrooms}\nArea: ${area}\nPrice: ${price}\nKey Features: ${features}`;
+    }
+  }
+
+  function updatePreview() {
+    const prop = getFormProp();
+    document.getElementById("prompt-preview").textContent = buildPreview(prop, currentPreviewStyle);
+  }
+
+  function switchPreview(style, btn) {
+    currentPreviewStyle = style;
+    document.querySelectorAll(".ptab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    updatePreview();
+  }
+
+  // Live preview on form change
+  document.querySelectorAll("input, select, textarea").forEach(el => {
+    el.addEventListener("input", updatePreview);
+  });
+  updatePreview();
+
+  // ── Generate ──
+  async function generate() {
+    const errEl = document.getElementById("form-error");
+    errEl.style.display = "none";
+
+    const prop = getFormProp();
+    if (!prop.name || prop.name === "<Property Name>") { showError("Property name is required."); return; }
+    if (!prop.location || prop.location === "<Location>") { showError("Location is required."); return; }
+    if (!prop.price) { showError("Price is required."); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(prop),
+      });
+      const data = await res.json();
+      if (!res.ok) { showError(data.error || "Generation failed."); return; }
+      addOrUpdateResult(data);
+      toast("✅ Generated & scored!");
+    } catch (e) {
+      showError("Network error: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function setLoading(on) {
+    document.getElementById("gen-btn").disabled = on;
+    document.getElementById("spinner").classList.toggle("active", on);
+    document.getElementById("btn-label").textContent = on ? "Generating…" : "✦ Generate & Score";
+  }
+
+  function showError(msg) {
+    const el = document.getElementById("form-error");
+    el.textContent = msg; el.style.display = "block";
+  }
+
+  // ── Results ──
+  function addOrUpdateResult(result) {
+    const existing = allResults.findIndex(r => r.property === result.property);
+    if (existing !== -1) allResults[existing] = result;
+    else allResults.push(result);
+    renderAll();
+  }
+
+  function renderAll() {
+    document.getElementById("empty-state").style.display = allResults.length ? "none" : "flex";
+    document.getElementById("summary-section").style.display = allResults.length ? "block" : "none";
+
+    // Summary table
+    const tbody = document.getElementById("summary-body");
+    tbody.innerHTML = "";
+    allResults.forEach(entry => {
+      STYLES.forEach(style => {
+        const s = entry.styles[style].scores;
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${entry.property}</td>
+          <td><span class="badge ${STYLE_BADGE[style]}">${STYLE_LABEL[style]}</span></td>
+          <td><span class="${sc(s.accuracy)}">${s.accuracy}</span></td>
+          <td><span class="${sc(s.tone)}">${s.tone}</span></td>
+          <td><span class="${sc(s.length)}">${s.length}</span></td>
+          <td><strong class="${sc(Math.round(s.total/3))}">${s.total}</strong></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    });
+
+    // Property cards
+    const grid = document.getElementById("property-grid");
+    grid.innerHTML = "";
+    allResults.forEach((entry, pIdx) => {
+      const card = document.createElement("div");
+      card.className = "property-card";
+      const tabsHtml = STYLES.map((style, i) =>
+        `<button class="tab-btn ${i===0 ? STYLE_ACTIVE[style] : ''}"
+          onclick="switchTab(${pIdx},'${style}',this)"
+          id="tab-${pIdx}-${style}">${STYLE_LABEL[style]}</button>`
+      ).join("");
+
+      const contentsHtml = STYLES.map((style, i) => {
+        const d = entry.styles[style];
+        const s = d.scores;
+        return `<div class="tab-content ${i===0?'visible':''}" id="content-${pIdx}-${style}">
+          <div class="desc-box">${d.description}</div>
+          <div class="score-row">
+            ${scoreItem("Accuracy", s.accuracy)}
+            ${scoreItem("Tone", s.tone)}
+            ${scoreItem("Length", s.length)}
+            ${scoreItem("Total", s.total, true, "/15")}
+          </div>
+          <div class="reasoning">💬 ${s.reasoning}</div>
+        </div>`;
+      }).join("");
+
+      card.innerHTML = `
+        <div class="property-header">
+          <span>🏠</span>
+          <div><h3>${entry.property}</h3></div>
+          <button class="del-btn" onclick="removeResult('${entry.property}')">✕ Remove</button>
+        </div>
+        <div class="tabs">${tabsHtml}</div>
+        ${contentsHtml}
+      `;
+      grid.appendChild(card);
+    });
+  }
+
+  function scoreItem(label, val, isTotal=false, suffix="") {
+    return `<div class="score-item ${isTotal?'total':''}">
+      <span class="slabel">${label}</span>
+      <span class="sval ${sc(isTotal ? Math.round(val/3) : val)}">${val}${suffix}</span>
+    </div>`;
+  }
+
+  function sc(v) {
+    return v >= 5 ? "sc5" : v >= 4 ? "sc4" : v >= 3 ? "sc3" : v >= 2 ? "sc2" : "sc1";
+  }
+
+  function switchTab(pIdx, style, btnEl) {
+    STYLES.forEach(s => {
+      const c = document.getElementById(`content-${pIdx}-${s}`);
+      const t = document.getElementById(`tab-${pIdx}-${s}`);
+      if (c) c.classList.remove("visible");
+      if (t) t.className = "tab-btn";
+    });
+    document.getElementById(`content-${pIdx}-${style}`).classList.add("visible");
+    btnEl.className = `tab-btn ${STYLE_ACTIVE[style]}`;
+  }
+
+  function removeResult(name) {
+    allResults = allResults.filter(r => r.property !== name);
+    renderAll();
+    fetch("/api/results/clear", { method: "POST" }).then(() => {
+      // re-add remaining via a workaround: just sync the display, server already cleared
+    });
+  }
+
+  // ── Save / Clear ──
+  async function saveResults() {
+    if (!allResults.length) { toast("No results to save yet."); return; }
+    const res = await fetch("/api/results/save", { method: "POST" });
+    const data = await res.json();
+    if (res.ok) toast(`💾 Saved: ${data.json} & ${data.csv}`);
+    else toast("Save failed: " + data.error);
+  }
+
+  async function clearAll() {
+    if (!allResults.length) return;
+    if (!confirm("Clear all results?")) return;
+    await fetch("/api/results/clear", { method: "POST" });
+    allResults = [];
+    renderAll();
+    toast("🗑 Cleared.");
+  }
+
+  // ── Toast ──
+  function toast(msg) {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    setTimeout(() => el.classList.remove("show"), 3000);
+  }
+</script>
+</body>
+</html>
