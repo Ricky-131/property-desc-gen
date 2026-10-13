@@ -41,6 +41,7 @@ def generate():
         _jobs[job_id] = {"status": "running", "result": None, "error": None}
 
     def do_work():
+        print(f"[{job_id}] Processing property: '{prop['name']}'...", flush=True)
         try:
             result = process_property(prop)
             with _lock:
@@ -51,7 +52,9 @@ def generate():
                     _results.append(result)
                 _jobs[job_id]["status"] = "done"
                 _jobs[job_id]["result"] = result
+            print(f"[{job_id}] Completed successfully!", flush=True)
         except Exception as e:
+            print(f"[{job_id}] Error: {e}", flush=True)
             with _lock:
                 _jobs[job_id]["status"] = "error"
                 _jobs[job_id]["error"] = str(e)

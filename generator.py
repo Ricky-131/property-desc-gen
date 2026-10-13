@@ -8,11 +8,15 @@ import google.generativeai as genai
 load_dotenv()
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-3.8-flash")
 
-# ─────────────────────────────────────────────
-# Single combined call: generate all 3 + score
-# ─────────────────────────────────────────────
+# List of models to try in order — each has its own quota pool on Gemini free tier!
+CANDIDATE_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.7-flash",
+    "gemini-3.8-flash",
+]
 
 PROMPT_STYLE_LABELS = {
     "zero_shot": "Zero-Shot",
@@ -89,20 +93,36 @@ Return ONLY valid JSON — no markdown fences, no extra text:
 
 
 def process_property(prop: dict) -> dict:
-    """Generate + score all 3 styles in a single API call."""
+    """Generate + score all 3 styles in a single API call with model fallback."""
     prompt = build_combined_prompt(prop)
-    response = model.generate_content(prompt)
-    text = response.text.strip()
 
-    # Strip markdown code fences if present
-    if "```" in text:
-        parts = text.split("```")
-        text = parts[1] if len(parts) > 1 else parts[0]
-        if text.startswith("json"):
-            text = text[4:]
-    text = text.strip()
+    last_error = None
+    data = None
 
-    data = json.loads(text)
+    for model_name in CANDIDATE_MODELS:
+        try:
+            print(f"Calling Gemini model: {model_name}...", flush=True)
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            text = response.text.strip()
+
+            # Strip markdown code fences if present
+            if "```" in text:
+                parts = text.split("```")
+                text = parts[1] if len(parts) > 1 else parts[0]
+                if text.startswith("json"):
+                    text = text[4:]
+            text = text.strip()
+
+            data = json.loads(text)
+            print(f"Successfully generated using {model_name}!", flush=True)
+            break
+        except Exception as e:
+            print(f"Model {model_name} failed: {e}. Trying next candidate...", flush=True)
+            last_error = e
+
+    if data is None:
+        raise RuntimeError(f"All candidate models failed. Last error: {last_error}")
 
     # Add totals
     result = {"property": prop["name"], "styles": {}}
